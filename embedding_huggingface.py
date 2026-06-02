@@ -6,7 +6,7 @@ from langchain_openai import OpenAIEmbeddings
 embeddings = OpenAIEmbeddings(
     model="openai/text-embedding-3-small",
     base_url="https://openrouter.ai/api/v1",
-    api_key="key",
+    api_key="or-v1-",
     check_embedding_ctx_length=False
 )
 
