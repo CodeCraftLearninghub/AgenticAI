@@ -1,0 +1,501 @@
+{
+  "name": "Invoice Data to Excel and Send Email",
+  "nodes": [
+    {
+      "parameters": {
+        "fileSelector": "C:/Users/lenovo/Desktop/N8n College Demo/notes/*.pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        464
+      ],
+      "id": "69e527ef-945b-403b-b40b-867e7eef91fa",
+      "name": "Read/Write Files from Disk1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        800,
+        448
+      ],
+      "id": "1dd1581e-b4ce-4e6c-bd63-5f75413b3c45",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all items (from Read/Write Files node)\nconst items = $input.all();\n\n// Filter items that actually have binary file data\nconst validFiles = items.filter(item => item.binary && Object.keys(item.binary).length > 0);\nconst fileCount = validFiles.length;\n\n// ✅ Case 1: Files found\nif (fileCount > 0) {\n  return validFiles.map(item => ({\n    json: {\n      ...item.json,\n      file_count: fileCount,\n      has_files: true,\n      message: `✅ Found ${fileCount} file(s) to process.`\n    },\n    binary: item.binary\n  }));\n}\n\n// ⚠️ Case 2: No files found\nreturn [\n  {\n    json: {\n      file_count: 0,\n      has_files: false,\n      message: `⚠️ Folder is empty — no files found for processing.`\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        464
+      ],
+      "id": "fcaaaeff-1e6a-48f2-8013-2d39389a0ac2",
+      "name": "Validate Files Presence1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ff36bf11-fa34-4b18-828b-f39e695f0a76",
+              "leftValue": "={{ $json.file_count }}",
+              "rightValue": "={{ 0 }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        464
+      ],
+      "id": "4f244797-9939-4c09-9ee5-b6284fa305e1",
+      "name": "if1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1680,
+        320
+      ],
+      "id": "fb67e18b-eeb2-4217-b91c-74871b2815aa",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1888,
+        448
+      ],
+      "id": "10b384b0-dbb2-4ff0-929a-3d9baa7ca0bf",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are an extractor generate from prompt",
+        "options": {
+          "systemMessage": "You are a helpful assistant You are an Invoice Extraction Assistant.\n\nAnalyze the attached invoice.\n\nExtract ONLY:\n\nInvoiceNumber\nInvoiceDate\nDueDate\nPaymentStatus\nPaymentMethod\nCurrency\nSubTotal\nTaxAmount\nTotalAmount\n\nFrom:\nCompanyName\nAddress\nEmail\n\nBillTo:\nCompanyName\nAddress\nEmail\n\nReturn ONLY valid JSON.\n\nDo not return markdown.\nDo not explain anything.\nIf a field is missing return null."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2112,
+        448
+      ],
+      "id": "662d45b5-b9bb-4ecb-b789-9251cef40ec4",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1984,
+        544.3891522466892
+      ],
+      "id": "639dfe5b-6996-45c8-bbb7-d88087569e7e",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GMj9XwzaLYUaHhjv",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 1: Get AI Agent output\nlet text = $input.first().json.output || \"\";\n\n// Step 2: Remove markdown code fences\ntext = text\n  .replace(/```json/gi, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\n// Step 3: Remove any unexpected non-JSON characters\ntext = text.replace(/[^\\x20-\\x7E\\r\\n]/g, \"\");\n\n// Step 4: Parse JSON\nlet parsed = {};\n\ntry {\n  parsed = JSON.parse(text);\n} catch (error) {\n  throw new Error(\"Invalid JSON returned by AI Agent:\\n\" + text);\n}\n\n// Step 5: Return individual fields\nreturn [\n  {\n    json: {\n      InvoiceNumber: parsed.InvoiceNumber || \"\",\n      InvoiceDate: parsed.InvoiceDate || \"\",\n      DueDate: parsed.DueDate || \"\",\n      PaymentStatus: parsed.PaymentStatus || \"\",\n      PaymentMethod: parsed.PaymentMethod || \"\",\n      Currency: parsed.Currency || \"\",\n      SubTotal: parsed.SubTotal || \"\",\n      TaxAmount: parsed.TaxAmount || \"\",\n      TotalAmount: parsed.TotalAmount || \"\",\n\n      FromCompanyName: parsed.From?.CompanyName || \"\",\n      FromAddress: parsed.From?.Address || \"\",\n      FromEmail: parsed.From?.Email || \"\",\n\n      BillToCompanyName: parsed.BillTo?.CompanyName || \"\",\n      BillToAddress: parsed.BillTo?.Address || \"\",\n      BillToEmail: parsed.BillTo?.Email || \"\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        448
+      ],
+      "id": "9d103ba8-8012-46b2-990e-8aa30da34b50",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1pxYqo-L3MAlxzss5eZ0Sju2vUA2r9uaexyBbReP0Dfc",
+          "mode": "list",
+          "cachedResultName": "Invoice ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1pxYqo-L3MAlxzss5eZ0Sju2vUA2r9uaexyBbReP0Dfc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1pxYqo-L3MAlxzss5eZ0Sju2vUA2r9uaexyBbReP0Dfc/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "InvoiceNumber",
+              "displayName": "InvoiceNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "InvoiceDate",
+              "displayName": "InvoiceDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "DueDate",
+              "displayName": "DueDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PaymentStatus",
+              "displayName": "PaymentStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "PaymentMethod",
+              "displayName": "PaymentMethod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Currency",
+              "displayName": "Currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SubTotal",
+              "displayName": "SubTotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "TaxAmount",
+              "displayName": "TaxAmount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "TotalAmount",
+              "displayName": "TotalAmount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "FromCompanyName",
+              "displayName": "FromCompanyName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "FromAddress",
+              "displayName": "FromAddress",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "FromEmail",
+              "displayName": "FromEmail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BillToCompanyName",
+              "displayName": "BillToCompanyName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BillToAddress",
+              "displayName": "BillToAddress",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BillToEmail",
+              "displayName": "BillToEmail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2704,
+        448
+      ],
+      "id": "6b41dc0d-4ebe-470e-8a3f-e214cbeb9573",
+      "name": "Append row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2fld93OQPzUPpOM2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "SChaladi@arborwh.com",
+        "subject": "Bot Status- Invoice PDF Extraction ",
+        "message": "<html>\n  <body style=\"font-family: Arial, sans-serif; color: #333; background-color: #f7f9fb; margin: 0; padding: 20px;\">\n    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width: 700px; margin: auto; background-color: #ffffff; box-shadow: 0 0 10px rgba(0,0,0,0.05); border-radius: 6px;\">\n      <tr>\n        <td style=\"padding: 20px;\">\n          <h2 style=\"color: #00733e; margin-top: 0;\">Invoice PDF Extraction Automation Run Successful – Status Report</h2>\n          <p>Dear Team,</p>\n          \n          <p>We are pleased to inform you that the latest automation process has been executed successfully without any errors. Below is the summary of the completed tasks:</p>\n\n          <h3 style=\"color: #00994d;\">Summary:</h3>\n          <ul style=\"margin-top: 5px; margin-bottom: 15px;\">\n            <li>All dependent services and Google Sheets were executed as expected.</li>\n            <li>No manual intervention was required during execution.</li>\n          </ul>\n\n          <h3 style=\"color: #00994d;\">Execution Details:</h3>\n          <table border=\"1\" cellpadding=\"8\" cellspacing=\"0\" style=\"border-collapse: collapse; width: 100%; font-size: 14px;\">\n            <thead style=\"background-color: #e8f5e9;\">\n              <tr>\n                <th align=\"left\">Bot Name</th>\n                <th align=\"left\">Status</th>\n                <th align=\"left\">Completion Time</th>\n              </tr>\n            </thead>\n            <tbody>\n              <tr>\n                <td>Invoice PDF Extraction Automation Bot</td>\n                <td style=\"color: #00733e; font-weight: bold;\">Success</td>\n                <td>10-Nov-2025 09:30 AM</td>\n              </tr>\n            </tbody>\n          </table>\n\n          <p style=\"margin-top: 25px;\">Kind regards,<br>\n          <strong>Automation Monitoring System</strong></p>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>\n",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1952,
+        288
+      ],
+      "id": "f3e8baf6-46b4-494a-b4db-f07b560f1ef2",
+      "name": "Send a message1",
+      "webhookId": "98ee52bf-6d1a-4b75-8e52-dc75328c40a4",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "O3N21VlpiMAPnW8W",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk1": {
+      "main": [
+        [
+          {
+            "node": "Validate Files Presence1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Files Presence1": {
+      "main": [
+        [
+          {
+            "node": "if1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "9198f49e-8ef0-4540-bf52-b874572af7c8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "677b1d9aded6865cfd67b3b0e77b6d0b48d936e0e3e2db58990addd5dcbf90d7"
+  },
+  "id": "qbLqRSAKVxCeXrBa",
+  "tags": []
+}
